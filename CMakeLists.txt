@@ -55,6 +55,9 @@ endif()
 find_package(directxmath CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::DirectXMath)
 
+find_package(Qt5 CONFIG REQUIRED COMPONENTS Widgets)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Widgets)
+
 find_package(directx-headers CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::DirectX-Headers Microsoft::DirectX-Guids)
 
