@@ -38,9 +38,26 @@ namespace {
     UINT g_rtvDescriptorSize = 0;
 
     ComPtr<ID3D12Resource> g_renderTargets[g_frameCount];
+    ComPtr<ID3D12CommandAllocator> g_commandAllocators[g_frameCount];
+    ComPtr<ID3D12GraphicsCommandList> g_commandList;
 
+    ComPtr<ID3D12Fence> g_fence;
+    UINT g_frameValues[g_frameCount] = {};
+    HANDLE g_fenceEvent = nullptr;
 
+    ComPtr<ID3D12RootSignature> g_rootSignature;
+    ComPtr<ID3D12PipelineState> g_pipelineState;
 
+    ComPtr<ID3D12DescriptorHeap> g_imguiSrvHeap;
+
+    float g_clearColor[4] = {0.08f, 0.1f, 0.14f, 1.0f};
+    bool g_showDemo = false;
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
+        return true;
 }
 
 // //
