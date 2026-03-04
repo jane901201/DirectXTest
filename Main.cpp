@@ -1,24 +1,15 @@
 #include <QApplication>
 #include <QWidget>
 #include <iostream>
-#include <future>
-
-int HeavyTask() {
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    return 42;
-}
 
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
 
-    std::future<int> result = std::async(std::launch::async, HeavyTask);
+    QWidget widget;
+    widget.show();
 
-    std::cout << "Doing something else...\n";
-
-    int value = result.get();
-    std::cout << "Result" << value << std::endl;
-
+    return app.exec();
     // QApplication app(argc, argv);
     //
     // QWidget window;
