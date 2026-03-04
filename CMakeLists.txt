@@ -23,7 +23,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerAndLinker.cmake)
 
-add_executable(${PROJECT_NAME} WIN32)
+add_executable(${PROJECT_NAME} WIN32
+        Renderer/IRenderer.h)
 
 target_sources(${PROJECT_NAME}
     PRIVATE

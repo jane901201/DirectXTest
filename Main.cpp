@@ -1,23 +1,46 @@
-#include <QApplication>
-#include <QWidget>
 #include <iostream>
 
-int main(int argc, char* argv[])
+#include "pch.h"
+
+#include <stdexcept>
+#include <wrl/client.h>
+
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <d3dcompiler.h>
+
+// ImGui
+#include "imgui.h"
+
+using Microsoft::WRL::ComPtr;
+
+extern "C"
 {
-    QApplication app(argc, argv);
+    // Used to enable the "Agility SDK" components
+    __declspec(dllexport) extern const UINT D3D12SDKVersion = D3D12_SDK_VERSION;
+    __declspec(dllexport) extern const char* D3D12SDKPath = ".\\D3D12\\";
+}
 
-    QWidget widget;
-    widget.show();
+//把 Windows 的 event 傳給 imgui
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    return app.exec();
-    // QApplication app(argc, argv);
-    //
-    // QWidget window;
-    // window.resize(800, 600);
-    // window.setWindowTitle("Qt Test");
-    // window.show();
-    //
-    // return app.exec();
+namespace {
+    constexpr UINT g_frameCount = 2;
+
+    HWND g_hwnd = nullptr;
+    UINT g_width = 1280;
+    UINT g_height = 720;
+
+    ComPtr<ID3D12Device> g_device;
+    ComPtr<ID3D12CommandQueue> g_commandQueue;
+    ComPtr<IDXGISwapChain3> g_swapChain;
+    ComPtr<ID3D12DescriptorHeap> g_descriptorHeap;
+    UINT g_rtvDescriptorSize = 0;
+
+    ComPtr<ID3D12Resource> g_renderTargets[g_frameCount];
+
+
+
 }
 
 // //
