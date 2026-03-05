@@ -77,7 +77,10 @@ void WaitForGpu() {
 
 void MoveToNextFrame() {
     const UINT64 currentFenceValue = g_fenceValues[g_frameIndex];
+    DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), currentFenceValue));
 
+    g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
+    
 }
 
 
