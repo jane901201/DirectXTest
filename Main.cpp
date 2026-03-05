@@ -2,9 +2,7 @@
 
 #include "pch.h"
 
-#include <stdexcept>
 #include <wrl/client.h>
-
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -42,7 +40,8 @@ namespace {
     ComPtr<ID3D12GraphicsCommandList> g_commandList;
 
     ComPtr<ID3D12Fence> g_fence;
-    UINT g_frameValues[g_frameCount] = {};
+    UINT g_frameIndex = 0;
+    UINT g_fenceValues[g_frameCount] = {};
     HANDLE g_fenceEvent = nullptr;
 
     ComPtr<ID3D12RootSignature> g_rootSignature;
@@ -54,11 +53,34 @@ namespace {
     bool g_showDemo = false;
 }
 
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
         return true;
+    switch (message) {
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+            default:
+            break;
+    }
+    return DefWindowProc(hWnd, message, wParam, lParam);
 }
+void WaitForGpu() {
+    const UINT64 fenceToWaitFor = g_fenceValues[g_frameCount];
+    DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), fenceToWaitFor));
+    DX::ThrowIfFailed(g_fence->SetEventOnCompletion(fenceToWaitFor, g_fenceEvent));
+    WaitForSingleObject(g_fenceEvent, INFINITE);
+    ++g_fenceValues[g_frameIndex];
+}
+
+void MoveToNextFrame() {
+    const UINT64 currentFenceValue = g_fenceValues[g_frameIndex];
+
+}
+
+
 
 // //
 // // Main.cpp
