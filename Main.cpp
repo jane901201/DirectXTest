@@ -80,7 +80,49 @@ void MoveToNextFrame() {
     DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), currentFenceValue));
 
     g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
-    
+
+    if (g_fence->GetCompletedValue() < g_fenceValues[g_frameIndex]) {
+        DX::ThrowIfFailed(g_fence->SetEventOnCompletion(g_fenceValues[g_frameIndex], g_fenceEvent));
+        WaitForSingleObject(g_fenceEvent, INFINITE);
+    }
+
+    g_fenceValues[g_frameIndex] = currentFenceValue + 1;
+}
+
+void InitWindow(HINSTANCE hInstance, int nCmdShow) {
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = L"ImGui";
+
+    if (!RegisterClassExW(&wc))
+        throw std::runtime_error("RegisterClassExW failed");
+
+    RECT rc = {0, 0, static_cast<LONG>(g_width), static_cast<LONG>(g_height)};
+    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, 0);
+
+    g_hwnd = CreateWindowExW(
+        0,
+        wc.lpszClassName,
+        L"DX12 + Imgui",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        rc.right - rc.left,
+        rc.bottom - rc.top,
+        nullptr,
+        nullptr,
+        hInstance,
+        nullptr
+        );
+
+    if (!g_hwnd)
+        throw std::runtime_error("CreateWindow failed");
+
+    ShowWindow(g_hwnd, nCmdShow);
 }
 
 
