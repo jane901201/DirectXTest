@@ -125,7 +125,83 @@ void InitWindow(HINSTANCE hInstance, int nCmdShow) {
     ShowWindow(g_hwnd, nCmdShow);
 }
 
+void CreatePipeline()
+{
+    ComPtr<ID3DBlob> vertexShaderBlob;
+    ComPtr<ID3DBlob> pixelShaderBlob;
+    ComPtr<ID3DBlob> errorBlob;
 
+    UINT compileFlags = 0;
+#if defined(_DEBUG)
+    compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+    HRESULT hr = D3DCompileFromFile(
+        L"TriangleVS.hlsl",
+        nullptr,
+        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "main",
+        "vs_5_0",
+        compileFlags,
+        0,
+        &vertexShaderBlob,
+        &errorBlob
+        );
+
+    if (FAILED(hr))
+    {
+        if (errorBlob)
+            OutputDebugStringA((const char*)errorBlob->GetBufferPointer());
+        DX::ThrowIfFailed(hr);
+    }
+
+    errorBlob.Reset();
+
+    hr = D3DCompileFromFile(
+        L"TrianglePS.hlsl",
+        nullptr,
+        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "main",
+        "ps_5_0",
+        compileFlags,
+        0,
+        &pixelShaderBlob,
+        &errorBlob
+        );
+
+    if (FAILED(hr))
+    {
+        if (errorBlob)
+            OutputDebugStringA((const char*)errorBlob->GetBufferPointer());
+        DX::ThrowIfFailed(hr);
+    }
+
+    D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
+    rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    ComPtr<ID3DBlob> rootSignatureBlob;
+    ComPtr<ID3DBlob> rootSignatureErrorBlob;
+
+    DX::ThrowIfFailed(D3D12SerializeRootSignature(
+        &rootSignatureDesc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &rootSignatureBlob,
+        &rootSignatureErrorBlob));
+
+    DX::ThrowIfFailed(g_device->CreateRootSignature(
+        0,
+        rootSignatureBlob->GetBufferPointer(),
+        rootSignatureBlob->GetBufferSize(),
+        IID_PPV_ARGS(&g_rootSignature)));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = {nullptr, 0};
+    psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
+    psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    
+
+}
 
 // //
 // // Main.cpp
