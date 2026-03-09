@@ -9,6 +9,8 @@
 
 // ImGui
 #include "imgui.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx12.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -19,8 +21,8 @@ extern "C"
     __declspec(dllexport) extern const char* D3D12SDKPath = ".\\D3D12\\";
 }
 
-//把 Windows 的 event 傳給 imgui
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
+     HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace {
     constexpr UINT g_frameCount = 2;
@@ -32,7 +34,7 @@ namespace {
     ComPtr<ID3D12Device> g_device;
     ComPtr<ID3D12CommandQueue> g_commandQueue;
     ComPtr<IDXGISwapChain3> g_swapChain;
-    ComPtr<ID3D12DescriptorHeap> g_descriptorHeap;
+    ComPtr<ID3D12DescriptorHeap> g_rtvHeap;
     UINT g_rtvDescriptorSize = 0;
 
     ComPtr<ID3D12Resource> g_renderTargets[g_frameCount];
@@ -199,9 +201,133 @@ void CreatePipeline()
     psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
     psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable = false;
+    psoDesc.DepthStencilState.StencilEnable = false;
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.SampleDesc.Count = 1;
 
+    DX::ThrowIfFailed(g_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_pipelineState)));
 }
+
+void InitImGui() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplWin32_Init(g_hwnd);
+
+    ImGui_ImplDX12_Init(g_device.Get(),
+        g_frameCount,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        g_imguiSrvHeap.Get(),
+        g_imguiSrvHeap->GetCPUDescriptorHandleForHeapStart(),
+        g_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart()
+        );
+}
+
+void ShutdownImGui() {
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+}
+
+void InitD3D() {
+    UINT factoryFlags = 0;
+#if defined(_DEBUG)
+    ComPtr<ID3D12Debug> debugController;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+        debugController->EnableDebugLayer();
+        factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+    }
+#endif
+
+    ComPtr<IDXGIFactory4> factory;
+    DX::ThrowIfFailed(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory)));
+
+    DX::ThrowIfFailed(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_device)));
+
+    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    DX::ThrowIfFailed(g_device->CreateCommandQueue(&queueDesc,IID_PPV_ARGS(&g_commandQueue)));
+
+    DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
+    swapChainDesc.BufferCount = g_frameCount;
+    swapChainDesc.Width = g_width;
+    swapChainDesc.Height = g_height;
+    swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swapChainDesc.SampleDesc.Count = 1;
+
+    ComPtr<IDXGISwapChain1> swapChain;
+    DX::ThrowIfFailed(factory->CreateSwapChainForHwnd(
+        g_commandQueue.Get(),
+        g_hwnd,
+        &swapChainDesc,
+        nullptr,
+        nullptr,
+        &swapChain
+        ));
+
+    DX::ThrowIfFailed(factory->MakeWindowAssociation(g_hwnd, DXGI_MWA_NO_ALT_ENTER));
+    DX::ThrowIfFailed(swapChain.As(&g_swapChain));
+    g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
+
+    //RTV heap
+    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
+    rtvHeapDesc.NumDescriptors = g_frameCount;
+    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    DX::ThrowIfFailed(g_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&g_rtvHeap)));
+    g_rtvDescriptorSize = g_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+    //Create frame resources
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    for (UINT i = 0; i < g_frameCount; ++i)
+    {
+        DX::ThrowIfFailed(g_swapChain->GetBuffer(i, IID_PPV_ARGS(&g_renderTargets[i])));
+        g_device->CreateRenderTargetView(g_renderTargets[i].Get(), nullptr, rtvHandle);
+        rtvHandle.ptr += g_rtvDescriptorSize;
+
+        DX::ThrowIfFailed(g_device->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT,
+            IID_PPV_ARGS(&g_commandAllocators[i])));
+    }
+
+    //ImGui SRV heap(shader-visible)
+    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    DX::ThrowIfFailed(g_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&g_imguiSrvHeap)));
+
+    CreatePipeline();
+
+    DX::ThrowIfFailed(g_device->CreateCommandList(
+        0,
+        D3D12_COMMAND_LIST_TYPE_DIRECT,
+        g_commandAllocators[g_frameIndex].Get(),
+        g_pipelineState.Get(),
+        IID_PPV_ARGS(&g_commandList)));
+
+    DX::ThrowIfFailed(g_commandList->Close());
+
+    DX::ThrowIfFailed(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence)));
+    g_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!g_fenceEvent)
+        DX::ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+
+    InitImGui();
+}
+
+
 
 // //
 // // Main.cpp

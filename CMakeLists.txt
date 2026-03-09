@@ -72,6 +72,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::DirectXShaderCompiler)
 find_package(winpixevent CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::WinPixEventRuntime)
 
+find_package(imgui CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE  imgui::imgui)
+
 # Uncomment if using the DirectX Tool Kit
 # find_package(directxtk12 CONFIG REQUIRED)
 # target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::DirectXTK12)

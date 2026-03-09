@@ -11,6 +11,8 @@
     "directxmath",
     "qt5",
     "winpixevent",
-    "imgui"
-  ]
+    {
+      "name": "imgui",
+      "features": ["win32-binding", "dx12-binding"]
+    }]
 }
