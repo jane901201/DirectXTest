@@ -1,7 +1,9 @@
 #include "pch.h"
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 
 #include <wrl/client.h>
@@ -59,6 +61,14 @@ namespace {
     bool g_imguiWin32Initialized = false;
     bool g_imguiDx12Initialized = false;
 
+    void CheckHr(HRESULT hr, const char* context) {
+        if (FAILED(hr)) {
+            char message[512] = {};
+            sprintf_s(message, "%s failed with HRESULT 0x%08X", context, static_cast<unsigned int>(hr));
+            throw std::runtime_error(message);
+        }
+    }
+
     std::wstring GetAssetPath(const wchar_t* relativePath) {
         wchar_t modulePath[MAX_PATH] = {};
         const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
@@ -68,12 +78,105 @@ namespace {
         return (std::filesystem::path(modulePath).parent_path() / relativePath).wstring();
     }
 
+    void GetHardwareAdapter(IDXGIFactory4* factory, IDXGIAdapter1** adapter) {
+        *adapter = nullptr;
+
+        ComPtr<IDXGIAdapter1> selectedAdapter;
+        ComPtr<IDXGIFactory6> factory6;
+        if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&factory6)))) {
+            for (UINT adapterIndex = 0;
+                 SUCCEEDED(factory6->EnumAdapterByGpuPreference(
+                     adapterIndex,
+                     DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                     IID_PPV_ARGS(selectedAdapter.ReleaseAndGetAddressOf())));
+                 ++adapterIndex) {
+                DXGI_ADAPTER_DESC1 desc = {};
+                CheckHr(selectedAdapter->GetDesc1(&desc), "IDXGIAdapter1::GetDesc1");
+
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+                    continue;
+
+                if (SUCCEEDED(D3D12CreateDevice(selectedAdapter.Get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr))) {
+                    *adapter = selectedAdapter.Detach();
+                    return;
+                }
+            }
+        }
+
+        for (UINT adapterIndex = 0;
+             SUCCEEDED(factory->EnumAdapters1(adapterIndex, selectedAdapter.ReleaseAndGetAddressOf()));
+             ++adapterIndex) {
+            DXGI_ADAPTER_DESC1 desc = {};
+            CheckHr(selectedAdapter->GetDesc1(&desc), "IDXGIAdapter1::GetDesc1");
+
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+                continue;
+
+            if (SUCCEEDED(D3D12CreateDevice(selectedAdapter.Get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr))) {
+                *adapter = selectedAdapter.Detach();
+                return;
+            }
+        }
+
+        ComPtr<IDXGIAdapter> warpAdapter;
+        CheckHr(factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter)), "IDXGIFactory4::EnumWarpAdapter");
+        CheckHr(warpAdapter.As(&selectedAdapter), "IDXGIAdapter::As<IDXGIAdapter1>");
+        *adapter = selectedAdapter.Detach();
+    }
+
     void AllocateImguiSrvDescriptor(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* outCpuDescHandle, D3D12_GPU_DESCRIPTOR_HANDLE* outGpuDescHandle) {
         *outCpuDescHandle = g_imguiSrvHeap->GetCPUDescriptorHandleForHeapStart();
         *outGpuDescHandle = g_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart();
     }
 
     void FreeImguiSrvDescriptor(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE) {
+    }
+
+    std::string LoadShaderSource(const std::wstring& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+            throw std::runtime_error("Failed to open shader file");
+
+        std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (source.size() >= 3 &&
+            static_cast<unsigned char>(source[0]) == 0xEF &&
+            static_cast<unsigned char>(source[1]) == 0xBB &&
+            static_cast<unsigned char>(source[2]) == 0xBF) {
+            source.erase(0, 3);
+        }
+
+        return source;
+    }
+
+    ComPtr<ID3DBlob> CompileShader(const std::wstring& path, const char* entryPoint, const char* target, UINT compileFlags) {
+        const std::string source = LoadShaderSource(path);
+        const std::string sourcePath = std::filesystem::path(path).string();
+
+        ComPtr<ID3DBlob> shaderBlob;
+        ComPtr<ID3DBlob> errorBlob;
+        const HRESULT hr = D3DCompile(
+            source.data(),
+            source.size(),
+            sourcePath.c_str(),
+            nullptr,
+            D3D_COMPILE_STANDARD_FILE_INCLUDE,
+            entryPoint,
+            target,
+            compileFlags,
+            0,
+            &shaderBlob,
+            &errorBlob);
+
+        if (FAILED(hr)) {
+            std::string message = "D3DCompile failed";
+            if (errorBlob && errorBlob->GetBufferPointer()) {
+                message += ": ";
+                message.append(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
+            }
+            throw std::runtime_error(message);
+        }
+
+        return shaderBlob;
     }
 }
 
@@ -96,20 +199,20 @@ void WaitForGpu() {
         return;
 
     const UINT64 fenceToWaitFor = g_fenceValues[g_frameIndex];
-    DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), fenceToWaitFor));
-    DX::ThrowIfFailed(g_fence->SetEventOnCompletion(fenceToWaitFor, g_fenceEvent));
+    CheckHr(g_commandQueue->Signal(g_fence.Get(), fenceToWaitFor), "ID3D12CommandQueue::Signal");
+    CheckHr(g_fence->SetEventOnCompletion(fenceToWaitFor, g_fenceEvent), "ID3D12Fence::SetEventOnCompletion");
     WaitForSingleObject(g_fenceEvent, INFINITE);
     g_fenceValues[g_frameIndex] = fenceToWaitFor + 1;
 }
 
 void MoveToNextFrame() {
     const UINT64 currentFenceValue = g_fenceValues[g_frameIndex];
-    DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), currentFenceValue));
+    CheckHr(g_commandQueue->Signal(g_fence.Get(), currentFenceValue), "ID3D12CommandQueue::Signal");
 
     g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
 
     if (g_fence->GetCompletedValue() < g_fenceValues[g_frameIndex]) {
-        DX::ThrowIfFailed(g_fence->SetEventOnCompletion(g_fenceValues[g_frameIndex], g_fenceEvent));
+        CheckHr(g_fence->SetEventOnCompletion(g_fenceValues[g_frameIndex], g_fenceEvent), "ID3D12Fence::SetEventOnCompletion");
         WaitForSingleObject(g_fenceEvent, INFINITE);
     }
 
@@ -157,54 +260,13 @@ void CreatePipeline()
     const std::wstring vertexShaderPath = GetAssetPath(L"Shaders\\TriangleVS.hlsl");
     const std::wstring pixelShaderPath = GetAssetPath(L"Shaders\\TrianglePS.hlsl");
 
-    ComPtr<ID3DBlob> vertexShaderBlob;
-    ComPtr<ID3DBlob> pixelShaderBlob;
-    ComPtr<ID3DBlob> errorBlob;
-
     UINT compileFlags = 0;
 #if defined(_DEBUG)
     compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
-    HRESULT hr = D3DCompileFromFile(
-        vertexShaderPath.c_str(),
-        nullptr,
-        D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "main",
-        "vs_5_0",
-        compileFlags,
-        0,
-        &vertexShaderBlob,
-        &errorBlob
-        );
-
-    if (FAILED(hr))
-    {
-        if (errorBlob)
-            OutputDebugStringA((const char*)errorBlob->GetBufferPointer());
-        DX::ThrowIfFailed(hr);
-    }
-
-    errorBlob.Reset();
-
-    hr = D3DCompileFromFile(
-        pixelShaderPath.c_str(),
-        nullptr,
-        D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "main",
-        "ps_5_0",
-        compileFlags,
-        0,
-        &pixelShaderBlob,
-        &errorBlob
-        );
-
-    if (FAILED(hr))
-    {
-        if (errorBlob)
-            OutputDebugStringA((const char*)errorBlob->GetBufferPointer());
-        DX::ThrowIfFailed(hr);
-    }
+    ComPtr<ID3DBlob> vertexShaderBlob = CompileShader(vertexShaderPath, "main", "vs_5_0", compileFlags);
+    ComPtr<ID3DBlob> pixelShaderBlob = CompileShader(pixelShaderPath, "main", "ps_5_0", compileFlags);
 
     D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
     rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -212,17 +274,17 @@ void CreatePipeline()
     ComPtr<ID3DBlob> rootSignatureBlob;
     ComPtr<ID3DBlob> rootSignatureErrorBlob;
 
-    DX::ThrowIfFailed(D3D12SerializeRootSignature(
+    CheckHr(D3D12SerializeRootSignature(
         &rootSignatureDesc,
         D3D_ROOT_SIGNATURE_VERSION_1,
         &rootSignatureBlob,
-        &rootSignatureErrorBlob));
+        &rootSignatureErrorBlob), "D3D12SerializeRootSignature");
 
-    DX::ThrowIfFailed(g_device->CreateRootSignature(
+    CheckHr(g_device->CreateRootSignature(
         0,
         rootSignatureBlob->GetBufferPointer(),
         rootSignatureBlob->GetBufferSize(),
-        IID_PPV_ARGS(&g_rootSignature)));
+        IID_PPV_ARGS(&g_rootSignature)), "ID3D12Device::CreateRootSignature");
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.InputLayout = {nullptr, 0};
@@ -239,7 +301,7 @@ void CreatePipeline()
     psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     psoDesc.SampleDesc.Count = 1;
 
-    DX::ThrowIfFailed(g_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_pipelineState)));
+    CheckHr(g_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_pipelineState)), "ID3D12Device::CreateGraphicsPipelineState");
 }
 
 void InitImGui() {
@@ -298,13 +360,15 @@ void InitD3D() {
 #endif
 
     ComPtr<IDXGIFactory4> factory;
-    DX::ThrowIfFailed(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory)));
+    CheckHr(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2");
 
-    DX::ThrowIfFailed(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_device)));
+    ComPtr<IDXGIAdapter1> adapter;
+    GetHardwareAdapter(factory.Get(), adapter.GetAddressOf());
+    CheckHr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_device)), "D3D12CreateDevice");
 
     D3D12_COMMAND_QUEUE_DESC queueDesc = {};
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    DX::ThrowIfFailed(g_device->CreateCommandQueue(&queueDesc,IID_PPV_ARGS(&g_commandQueue)));
+    CheckHr(g_device->CreateCommandQueue(&queueDesc,IID_PPV_ARGS(&g_commandQueue)), "ID3D12Device::CreateCommandQueue");
 
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
     swapChainDesc.BufferCount = g_frameCount;
@@ -316,17 +380,17 @@ void InitD3D() {
     swapChainDesc.SampleDesc.Count = 1;
 
     ComPtr<IDXGISwapChain1> swapChain;
-    DX::ThrowIfFailed(factory->CreateSwapChainForHwnd(
+    CheckHr(factory->CreateSwapChainForHwnd(
         g_commandQueue.Get(),
         g_hwnd,
         &swapChainDesc,
         nullptr,
         nullptr,
         &swapChain
-        ));
+        ), "IDXGIFactory4::CreateSwapChainForHwnd");
 
-    DX::ThrowIfFailed(factory->MakeWindowAssociation(g_hwnd, DXGI_MWA_NO_ALT_ENTER));
-    DX::ThrowIfFailed(swapChain.As(&g_swapChain));
+    CheckHr(factory->MakeWindowAssociation(g_hwnd, DXGI_MWA_NO_ALT_ENTER), "IDXGIFactory4::MakeWindowAssociation");
+    CheckHr(swapChain.As(&g_swapChain), "IDXGISwapChain1::As<IDXGISwapChain3>");
     g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
 
     //RTV heap
@@ -334,20 +398,20 @@ void InitD3D() {
     rtvHeapDesc.NumDescriptors = g_frameCount;
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    DX::ThrowIfFailed(g_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&g_rtvHeap)));
+    CheckHr(g_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&g_rtvHeap)), "ID3D12Device::CreateDescriptorHeap(RTV)");
     g_rtvDescriptorSize = g_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
     //Create frame resources
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < g_frameCount; ++i)
     {
-        DX::ThrowIfFailed(g_swapChain->GetBuffer(i, IID_PPV_ARGS(&g_renderTargets[i])));
+        CheckHr(g_swapChain->GetBuffer(i, IID_PPV_ARGS(&g_renderTargets[i])), "IDXGISwapChain3::GetBuffer");
         g_device->CreateRenderTargetView(g_renderTargets[i].Get(), nullptr, rtvHandle);
         rtvHandle.ptr += g_rtvDescriptorSize;
 
-        DX::ThrowIfFailed(g_device->CreateCommandAllocator(
+        CheckHr(g_device->CreateCommandAllocator(
             D3D12_COMMAND_LIST_TYPE_DIRECT,
-            IID_PPV_ARGS(&g_commandAllocators[i])));
+            IID_PPV_ARGS(&g_commandAllocators[i])), "ID3D12Device::CreateCommandAllocator");
     }
 
     //ImGui SRV heap(shader-visible)
@@ -355,31 +419,31 @@ void InitD3D() {
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.NumDescriptors = 1;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    DX::ThrowIfFailed(g_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&g_imguiSrvHeap)));
+    CheckHr(g_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&g_imguiSrvHeap)), "ID3D12Device::CreateDescriptorHeap(SRV)");
 
     CreatePipeline();
 
-    DX::ThrowIfFailed(g_device->CreateCommandList(
+    CheckHr(g_device->CreateCommandList(
         0,
         D3D12_COMMAND_LIST_TYPE_DIRECT,
         g_commandAllocators[g_frameIndex].Get(),
         g_pipelineState.Get(),
-        IID_PPV_ARGS(&g_commandList)));
+        IID_PPV_ARGS(&g_commandList)), "ID3D12Device::CreateCommandList");
 
-    DX::ThrowIfFailed(g_commandList->Close());
+    CheckHr(g_commandList->Close(), "ID3D12GraphicsCommandList::Close");
 
-    DX::ThrowIfFailed(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence)));
+    CheckHr(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence)), "ID3D12Device::CreateFence");
     g_fenceValues[g_frameIndex] = 1;
     g_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!g_fenceEvent)
-        DX::ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+        CheckHr(HRESULT_FROM_WIN32(GetLastError()), "CreateEventW");
 
     InitImGui();
 }
 
 void PopulateCommandList() {
-    DX::ThrowIfFailed(g_commandAllocators[g_frameIndex]->Reset());
-    DX::ThrowIfFailed(g_commandList->Reset(g_commandAllocators[g_frameIndex].Get(), g_pipelineState.Get()));
+    CheckHr(g_commandAllocators[g_frameIndex]->Reset(), "ID3D12CommandAllocator::Reset");
+    CheckHr(g_commandList->Reset(g_commandAllocators[g_frameIndex].Get(), g_pipelineState.Get()), "ID3D12GraphicsCommandList::Reset");
 
     D3D12_VIEWPORT viewport = {0.0f, 0.0f, (float)g_width, (float)g_height, 0.0f, 1.0f};
     D3D12_RECT scissorRect = {0, 0, (LONG)g_width, (LONG)g_height};
@@ -433,7 +497,7 @@ void PopulateCommandList() {
     toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
     g_commandList->ResourceBarrier(1, &toPresent);
 
-    DX::ThrowIfFailed(g_commandList->Close());
+    CheckHr(g_commandList->Close(), "ID3D12GraphicsCommandList::Close");
 }
 
 void Render() {
@@ -442,7 +506,7 @@ void Render() {
     ID3D12CommandList* list[] = {g_commandList.Get()};
     g_commandQueue->ExecuteCommandLists(1, list);
 
-    DX::ThrowIfFailed(g_swapChain->Present(1, 0));
+    CheckHr(g_swapChain->Present(1, 0), "IDXGISwapChain3::Present");
     MoveToNextFrame();
 }
 
