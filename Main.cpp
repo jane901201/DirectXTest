@@ -1,6 +1,8 @@
 #include "pch.h"
 
+#include <filesystem>
 #include <iostream>
+#include <string>
 
 #include <wrl/client.h>
 #include <d3d12.h>
@@ -43,7 +45,7 @@ namespace {
 
     ComPtr<ID3D12Fence> g_fence;
     UINT g_frameIndex = 0;
-    UINT g_fenceValues[g_frameCount] = {};
+    UINT64 g_fenceValues[g_frameCount] = {};
     HANDLE g_fenceEvent = nullptr;
 
     ComPtr<ID3D12RootSignature> g_rootSignature;
@@ -53,6 +55,26 @@ namespace {
 
     float g_clearColor[4] = {0.08f, 0.1f, 0.14f, 1.0f};
     bool g_showDemo = false;
+    bool g_imguiContextCreated = false;
+    bool g_imguiWin32Initialized = false;
+    bool g_imguiDx12Initialized = false;
+
+    std::wstring GetAssetPath(const wchar_t* relativePath) {
+        wchar_t modulePath[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+            throw std::runtime_error("GetModuleFileNameW failed");
+
+        return (std::filesystem::path(modulePath).parent_path() / relativePath).wstring();
+    }
+
+    void AllocateImguiSrvDescriptor(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* outCpuDescHandle, D3D12_GPU_DESCRIPTOR_HANDLE* outGpuDescHandle) {
+        *outCpuDescHandle = g_imguiSrvHeap->GetCPUDescriptorHandleForHeapStart();
+        *outGpuDescHandle = g_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart();
+    }
+
+    void FreeImguiSrvDescriptor(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE) {
+    }
 }
 
 
@@ -70,11 +92,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hWnd, message, wParam, lParam);
 }
 void WaitForGpu() {
-    const UINT64 fenceToWaitFor = g_fenceValues[g_frameCount];
+    if (!g_commandQueue || !g_fence || !g_fenceEvent)
+        return;
+
+    const UINT64 fenceToWaitFor = g_fenceValues[g_frameIndex];
     DX::ThrowIfFailed(g_commandQueue->Signal(g_fence.Get(), fenceToWaitFor));
     DX::ThrowIfFailed(g_fence->SetEventOnCompletion(fenceToWaitFor, g_fenceEvent));
     WaitForSingleObject(g_fenceEvent, INFINITE);
-    ++g_fenceValues[g_frameIndex];
+    g_fenceValues[g_frameIndex] = fenceToWaitFor + 1;
 }
 
 void MoveToNextFrame() {
@@ -129,6 +154,9 @@ void InitWindow(HINSTANCE hInstance, int nCmdShow) {
 
 void CreatePipeline()
 {
+    const std::wstring vertexShaderPath = GetAssetPath(L"Shaders\\TriangleVS.hlsl");
+    const std::wstring pixelShaderPath = GetAssetPath(L"Shaders\\TrianglePS.hlsl");
+
     ComPtr<ID3DBlob> vertexShaderBlob;
     ComPtr<ID3DBlob> pixelShaderBlob;
     ComPtr<ID3DBlob> errorBlob;
@@ -139,7 +167,7 @@ void CreatePipeline()
 #endif
 
     HRESULT hr = D3DCompileFromFile(
-        L"TriangleVS.hlsl",
+        vertexShaderPath.c_str(),
         nullptr,
         D3D_COMPILE_STANDARD_FILE_INCLUDE,
         "main",
@@ -160,7 +188,7 @@ void CreatePipeline()
     errorBlob.Reset();
 
     hr = D3DCompileFromFile(
-        L"TrianglePS.hlsl",
+        pixelShaderPath.c_str(),
         nullptr,
         D3D_COMPILE_STANDARD_FILE_INCLUDE,
         "main",
@@ -198,6 +226,7 @@ void CreatePipeline()
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.InputLayout = {nullptr, 0};
+    psoDesc.pRootSignature = g_rootSignature.Get();
     psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
     psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
@@ -216,26 +245,46 @@ void CreatePipeline()
 void InitImGui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    g_imguiContextCreated = true;
     ImGuiIO& io = ImGui::GetIO();
     (void)io;
 
     ImGui::StyleColorsDark();
 
-    ImGui_ImplWin32_Init(g_hwnd);
+    if (!ImGui_ImplWin32_Init(g_hwnd))
+        throw std::runtime_error("ImGui_ImplWin32_Init failed");
+    g_imguiWin32Initialized = true;
 
-    ImGui_ImplDX12_Init(g_device.Get(),
-        g_frameCount,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        g_imguiSrvHeap.Get(),
-        g_imguiSrvHeap->GetCPUDescriptorHandleForHeapStart(),
-        g_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart()
-        );
+    ImGui_ImplDX12_InitInfo initInfo = {};
+    initInfo.Device = g_device.Get();
+    initInfo.CommandQueue = g_commandQueue.Get();
+    initInfo.NumFramesInFlight = g_frameCount;
+    initInfo.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    initInfo.SrvDescriptorHeap = g_imguiSrvHeap.Get();
+    initInfo.SrvDescriptorAllocFn = AllocateImguiSrvDescriptor;
+    initInfo.SrvDescriptorFreeFn = FreeImguiSrvDescriptor;
+
+    if (!ImGui_ImplDX12_Init(&initInfo))
+        throw std::runtime_error("ImGui_ImplDX12_Init failed");
+    g_imguiDx12Initialized = true;
 }
 
 void ShutdownImGui() {
-    ImGui_ImplDX12_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    if (g_imguiDx12Initialized) {
+        ImGui_ImplDX12_Shutdown();
+        g_imguiDx12Initialized = false;
+    }
+
+    if (g_imguiWin32Initialized) {
+        ImGui_ImplWin32_Shutdown();
+        g_imguiWin32Initialized = false;
+    }
+
+    if (g_imguiContextCreated && ImGui::GetCurrentContext()) {
+        ImGui::DestroyContext();
+        g_imguiContextCreated = false;
+    }
 }
 
 void InitD3D() {
@@ -320,6 +369,7 @@ void InitD3D() {
     DX::ThrowIfFailed(g_commandList->Close());
 
     DX::ThrowIfFailed(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence)));
+    g_fenceValues[g_frameIndex] = 1;
     g_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!g_fenceEvent)
         DX::ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
@@ -342,7 +392,7 @@ void PopulateCommandList() {
     D3D12_RESOURCE_BARRIER toRT = {};
     toRT.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     toRT.Transition.pResource = g_renderTargets[g_frameIndex].Get();
-    toRT.Transition.Subresource = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toRT.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     toRT.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     toRT.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     g_commandList->ResourceBarrier(1, &toRT);
@@ -425,8 +475,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ PWSTR, _I
         WaitForGpu();
         result = (int)msg.wParam;
     }
-    catch (const std::exception&) {
-        MessageBoxA(g_hwnd, "Failed to initialize or run the D3D12 + ImGui sample.", "Error", MB_OK | MB_ICONERROR);
+    catch (const std::exception& ex) {
+        const std::string errorMessage =
+            std::string("Failed to initialize or run the D3D12 + ImGui sample.\n") + ex.what();
+        MessageBoxA(g_hwnd, errorMessage.c_str(), "Error", MB_OK | MB_ICONERROR);
         result = 1;
     }
 
