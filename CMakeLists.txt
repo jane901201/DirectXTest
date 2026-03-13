@@ -25,6 +25,8 @@ include(CompilerAndLinker.cmake)
 
 add_executable(${PROJECT_NAME} WIN32
         Renderer/IRenderer.h
+        NodeUI.cpp
+        NodeUI.h
 )
 
 target_sources(${PROJECT_NAME}
