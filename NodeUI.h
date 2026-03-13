@@ -22,8 +22,11 @@ namespace editor {
 }
 
 class NodeUI {
-    //static void DrawGrid(ImDrawList* draw_list, )
+    static void DrawGrid2(ImDrawList* dl, ImVec2 canvas_p0, ImVec2 canvas_sz, ImVec2 pan, float step, ImU32 col) {
+        //const ImVec2 canvas_p1 = canvas_p0 + canvas_sz;
 
+
+    }
 };
 
 
