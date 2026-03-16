@@ -1,0 +1,13 @@
+﻿//
+// Created by User on 2026/3/16.
+//
+
+#ifndef CMAKEDIRECT3D12GAMEVCPKG_RT_01_PPM_H
+#define CMAKEDIRECT3D12GAMEVCPKG_RT_01_PPM_H
+
+
+class rt_01_ppm {
+};
+
+
+#endif //CMAKEDIRECT3D12GAMEVCPKG_RT_01_PPM_H

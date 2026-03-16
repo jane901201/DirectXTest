@@ -27,7 +27,11 @@ add_executable(${PROJECT_NAME} WIN32
         Renderer/IRenderer.h
         NodeUI.cpp
         NodeUI.h
+        src/examples/rt_01_ppm.cpp
+        src/examples/rt_01_ppm.h
 )
+
+
 
 target_sources(${PROJECT_NAME}
     PRIVATE
@@ -147,3 +151,8 @@ if(TARGET Microsoft::DirectX12-Agility)
       COMMAND_EXPAND_LISTS
       )
 endif()
+
+option(BUILD_EXAMPLES "Build tutorial examples" ON)
+if(BUILD_EXAMPLES)
+    add_subdirectory(src/examples EXCLUDE_FROM_ALL)
+endif ()
