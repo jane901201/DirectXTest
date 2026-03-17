@@ -3,7 +3,7 @@
 )
 
 foreach (example_src IN LISTS EXAMPLE_SOURCES)
-    get_filename_component(example_name &{example_src} NAME_WE)
+    get_filename_component(example_name ${example_src} NAME_WE)
 
     add_executable(${example_name} ${example_src})
 
