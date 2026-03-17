@@ -27,8 +27,6 @@ add_executable(${PROJECT_NAME} WIN32
         Renderer/IRenderer.h
         NodeUI.cpp
         NodeUI.h
-        src/examples/rt_01_ppm.cpp
-        src/examples/rt_01_ppm.h
 )
 
 
