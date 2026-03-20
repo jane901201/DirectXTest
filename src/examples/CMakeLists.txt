@@ -5,7 +5,8 @@
 foreach (example_src IN LISTS EXAMPLE_SOURCES)
     get_filename_component(example_name ${example_src} NAME_WE)
 
-    add_executable(${example_name} ${example_src})
+    add_executable(${example_name} ${example_src}
+            vec3.h)
 
     target_compile_features(${example_name} PRIVATE cxx_std_17)
 
