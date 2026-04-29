@@ -5,6 +5,7 @@
 #ifndef CMAKEDIRECT3D12GAMEVCPKG_NODEUI_H
 #define CMAKEDIRECT3D12GAMEVCPKG_NODEUI_H
 
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include<imgui.h>
 #include<vector>
 
@@ -23,9 +24,15 @@ namespace editor {
 
 class NodeUI {
     static void DrawGrid2(ImDrawList* dl, ImVec2 canvas_p0, ImVec2 canvas_sz, ImVec2 pan, float step, ImU32 col) {
-        //const ImVec2 canvas_p1 = canvas_p0 + canvas_sz;
+        const ImVec2 canvas_p1 = canvas_p0 + canvas_sz;
 
+        // vertical lines
+        for (float x = fmodf(pan.x, step); x < canvas_sz.x; x += step)
+            dl->AddLine(ImVec2(canvas_p0.x + x, canvas_p0.y), ImVec2(canvas_p0.x + x, canvas_p1.y), col);
 
+        // horizontal lines
+        for (float y = fmodf(pan.y, step); y < canvas_sz.y; y += step)
+            dl->AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), col);
     }
 };
 
