@@ -34,6 +34,10 @@ class NodeUI {
         for (float y = fmodf(pan.y, step); y < canvas_sz.y; y += step)
             dl->AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), col);
     }
+
+    void ShowNodeEditorExample() {
+
+    }
 };
 
 

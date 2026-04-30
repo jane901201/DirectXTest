@@ -27,6 +27,8 @@ add_executable(${PROJECT_NAME} WIN32
         Renderer/IRenderer.h
         NodeUI.cpp
         NodeUI.h
+        src/MyApp.cpp
+        MyEngine/include/MyEngine/MyApp.h
 )
 
 

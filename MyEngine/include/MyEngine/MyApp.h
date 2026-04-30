@@ -1,0 +1,13 @@
+﻿//
+// Created by User on 2026/4/30.
+//
+
+#ifndef CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
+#define CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
+
+
+class MyApp {
+};
+
+
+#endif //CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
