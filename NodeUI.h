@@ -36,7 +36,16 @@ class NodeUI {
     }
 
     void ShowNodeEditorExample() {
+        static ImVec2 pan = ImVec2(0, 0);
+        static int selected_node_id = -1;
 
+        static std::vector<editor::Node> nodes = []{
+            std::vector<editor::Node> v;
+            v.push_back(editor::Node{1, ImVec2(40, 40),  ImVec2(180, 90),  "TextureSample"});
+            v.push_back(editor::Node{2, ImVec2(320, 120), ImVec2(200, 110), "Multiply"});
+            v.push_back(editor::Node{3, ImVec2(650, 60),  ImVec2(190, 90),  "Output"});
+            return v;
+        }();
     }
 };
 

@@ -1,13 +1,16 @@
-﻿//
-// Created by User on 2026/4/30.
-//
+﻿#pragma once
 
-#ifndef CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
-#define CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
+#ifdef MYENGINE_BUILD_DLL
+#define MYENGINE_API __declspec(dllexport)
+#else
+#define MYENGINE_API __declspec(dllimport)
+#endif
 
-
-class MyApp {
-};
-
-
-#endif //CMAKEDIRECT3D12GAMEVCPKG_MYAPP_H
+namespace MyEngine {
+    class MYENGINE_API MyApp {
+    public:
+        int Initialize();
+        void Run();
+        void Shutdown();
+    };
+}

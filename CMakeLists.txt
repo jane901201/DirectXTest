@@ -27,11 +27,17 @@ add_executable(${PROJECT_NAME} WIN32
         Renderer/IRenderer.h
         NodeUI.cpp
         NodeUI.h
-        src/MyApp.cpp
+        MyEngine/src/MyApp.cpp
         MyEngine/include/MyEngine/MyApp.h
+        MyEngine/src/MyRenderer.cpp
+        MyEngine/include/MyEngine/MyRenderer.h
 )
 
-
+#target_include_directories(${PROJECT_NAME}
+#    PRIVATE
+#        ${CMAKE_CURRENT_SOURCE_DIR}/MyEngine/include
+#        ${CMAKE_CURRENT_SOURCE_DIR}/MyEngine/src
+#)
 
 target_sources(${PROJECT_NAME}
     PRIVATE
