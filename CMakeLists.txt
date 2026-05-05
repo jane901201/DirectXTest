@@ -128,6 +128,29 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     endif()
 endif()
 
+
+find_program(CLANG_FORMAT_EXE clang-format)
+
+if(CLANG_FORMAT_EXE)
+    get_target_property(FORMAT_SOURCES ${PROJECT_NAME} SOURCES)
+
+    list(FILTER FORMAT_SOURCES INCLUDE REGEX "\\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$")
+
+    add_custom_target(format
+            COMMAND "${CLANG_FORMAT_EXE}" -i ${FORMAT_SOURCES}
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            VERBATIM
+    )
+endif()
+
+find_program(CLANG_TIDY_EXE clang-tidy)
+
+if(CLANG_TIDY_EXE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+            CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
+    )
+endif()
+
 if(WIN32)
     target_compile_definitions(${PROJECT_NAME} PRIVATE _WIN32_WINNT=0x0A00)
 endif()
