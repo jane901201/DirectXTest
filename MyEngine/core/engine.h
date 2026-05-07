@@ -1,0 +1,13 @@
+﻿//
+// Created by User on 2026/5/7.
+//
+
+#ifndef CMAKEDIRECT3D12GAMEVCPKG_ENGINE_H
+#define CMAKEDIRECT3D12GAMEVCPKG_ENGINE_H
+
+
+class engine {
+};
+
+
+#endif //CMAKEDIRECT3D12GAMEVCPKG_ENGINE_H

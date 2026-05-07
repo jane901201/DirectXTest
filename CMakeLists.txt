@@ -31,6 +31,10 @@ add_executable(${PROJECT_NAME} WIN32
         MyEngine/include/MyEngine/MyApp.h
         MyEngine/src/MyRenderer.cpp
         MyEngine/include/MyEngine/MyRenderer.h
+        MyEngine/core/engine.cpp
+        MyEngine/core/engine.h
+        MyEngine/core/project_settings.cpp
+        MyEngine/core/project_settings.h
 )
 
 #target_include_directories(${PROJECT_NAME}
