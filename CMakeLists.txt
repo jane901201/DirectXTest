@@ -35,6 +35,9 @@ add_executable(${PROJECT_NAME} WIN32
         MyEngine/core/engine.h
         MyEngine/core/project_settings.cpp
         MyEngine/core/project_settings.h
+        MyEngine/core/camera.cpp
+        MyEngine/core/camera.h
+        MyEngine/core/CameraCB.h
 )
 
 #target_include_directories(${PROJECT_NAME}
