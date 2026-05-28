@@ -38,6 +38,7 @@ add_executable(${PROJECT_NAME} WIN32
         MyEngine/core/camera.cpp
         MyEngine/core/camera.h
         MyEngine/core/CameraCB.h
+        MyEngine/core/CelShader.cpp
 )
 
 #target_include_directories(${PROJECT_NAME}
